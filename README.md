@@ -198,5 +198,3 @@ The code is deliberately small: `client.py` (HTTP), `reference.py` (tokenizer an
 ## Licence
 
 Apache-2.0, see [LICENSE](LICENSE).
-
-The initial version of faithserve was written with [Claude Code](https://claude.com/claude-code).
