@@ -1,8 +1,12 @@
 # faithserve
 
-**Is this endpoint serving this open-weight model faithfully?** Point `faithserve` at a Hugging Face model id
-and any OpenAI-compatible chat-completions endpoint; it runs a handful of black-box checks and prints a
-pass/fail report.
+[![CI](https://github.com/FrontiersMindAI/faithserve/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/FrontiersMindAI/faithserve/actions/workflows/ci.yml)
+[![License: Apache-2.0](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](https://github.com/FrontiersMindAI/faithserve/blob/main/LICENSE)
+
+**Check whether an OpenAI-compatible LLM server applies the right chat template, honours sampling parameters,
+streams consistently and returns tool calls for the open-weight model it serves.** Point `faithserve` at a
+Hugging Face model id and a chat-completions endpoint (vLLM, llama.cpp, Ollama, mlx-lm, LM Studio, SGLang or a
+hosted provider); it runs a handful of black-box checks and prints a pass/fail report.
 
 ```bash
 pip install git+https://github.com/FrontiersMindAI/faithserve
@@ -12,20 +16,30 @@ faithserve check Qwen/Qwen2.5-0.5B-Instruct --base-url http://localhost:8000/v1
 It downloads only the model's tokenizer files (never the weights), sends about twenty short requests, and
 exits non-zero if a check fails, so it can gate a deployment in CI.
 
-## Why
+## Why the same model behaves differently on different servers
 
 The same weights behave differently depending on who serves them. Serving stacks apply the wrong chat
 template, add a second BOS token, lose tool calls, or silently ignore sampling parameters, and none of that
 raises an error: you just get a slightly worse model. Some upstream reports of this class of problem:
-[vllm-project/vllm#39056](https://github.com/vllm-project/vllm/issues/39056),
-[ollama/ollama#14493](https://github.com/ollama/ollama/issues/14493),
-[EleutherAI/lm-evaluation-harness#1841](https://github.com/EleutherAI/lm-evaluation-harness/issues/1841).
+[lost tool calls in vLLM](https://github.com/vllm-project/vllm/issues/39056),
+[non-functional tool calling and ignored penalties in Ollama](https://github.com/ollama/ollama/issues/14493),
+[inconsistent evaluation results with a chat template in lm-evaluation-harness](https://github.com/EleutherAI/lm-evaluation-harness/issues/1841).
 (Linked as motivation; faithserve has not been used to reproduce those specific issues.)
 
 `faithserve` compares what the endpoint does with what the model's own tokenizer and chat template say it
 should do.
 
-## Example
+## When to use it: symptoms and the check that catches them
+
+| Symptom | Check |
+| --- | --- |
+| Tool calls come back as text in `content` instead of `tool_calls`, or `finish_reason` is `tool_calls` but no call arrives | `tools` |
+| `usage.prompt_tokens` does not match `apply_chat_template`: chat template not applied, wrong or outdated, double BOS token, system prompt dropped or injected | `parity` |
+| Stop sequence ignored or not working, `max_tokens` ignored, `temperature=0` not deterministic | `sampling` |
+| Streaming and non-streaming responses differ | `streaming` |
+| Eval scores differ between a served endpoint and local `transformers` | `parity`, which tells you whether the server builds a different prompt (one common cause); scores and logits are not compared |
+
+## Example: mlx-lm server with Qwen2.5
 
 A real run (6 October 2026, macOS on Apple silicon) against `mlx_lm.server` from mlx-lm 0.32.0, serving a
 local download of `mlx-community/Qwen2.5-0.5B-Instruct-4bit` with default settings:
@@ -82,7 +96,7 @@ Each failure was traced by hand before being trusted:
 
 That is one model, one server version and one machine. It says nothing about other models or versions.
 
-## What it checks
+## What it checks: chat template, sampling parameters, streaming, tool calling
 
 | Check | What it does | What a failure usually means |
 | --- | --- | --- |
@@ -117,6 +131,8 @@ faithserve check <hf-model-id> --base-url <url> [--served-model NAME] [--api-key
 - The API key is read from `--api-key` or, better, the `FAITHSERVE_API_KEY` environment variable. It is sent
   only as the `Authorization` header and never printed or written to the report.
 
+### Servers: mlx-lm, vLLM, llama.cpp, Ollama, LM Studio, SGLang, hosted providers
+
 | Server | Typical command | Tested |
 | --- | --- | --- |
 | mlx-lm | `mlx_lm.server --model <path-or-id> --port 8080`, then `--base-url http://localhost:8080/v1` | yes, see above |
@@ -124,12 +140,13 @@ faithserve check <hf-model-id> --base-url <url> [--served-model NAME] [--api-key
 | llama.cpp | `llama-server -m model.gguf --jinja`, then `--base-url http://localhost:8080/v1` | not yet |
 | Ollama | `--base-url http://localhost:11434/v1 --served-model <ollama tag>` | not yet |
 | LM Studio | `--base-url http://localhost:1234/v1 --served-model <name shown in LM Studio>` | not yet |
+| SGLang | `python -m sglang.launch_server --model-path <model>`, then `--base-url http://localhost:30000/v1` | not yet |
 | Hosted providers | `--base-url https://<provider>/v1 --served-model <provider's model name>` with `FAITHSERVE_API_KEY` set | not yet |
 
 "Not yet" means the base URL is the server's documented default but faithserve has not been run against it.
 Reports from those servers, passing or failing, are very welcome.
 
-### In CI
+### Run it in CI (GitHub Actions)
 
 ```yaml
 - name: Check the endpoint serves the model faithfully
@@ -188,13 +205,15 @@ The tests run offline in about a second: they train a tiny tokenizer in memory a
 OpenAI-compatible server (`tests/fake_server.py`) with one switch per failure mode. A new check or a new
 diagnosis should come with a fault in the fake server that triggers it.
 
-The most useful contribution is a run against a server listed as "not yet" above. If faithserve reports a
-FAIL that turns out to be wrong, please open an issue with the JSON report: false positives are treated as
-bugs.
+The most useful contribution is a run against a server listed as "not yet" above: please file a
+[server compatibility report](https://github.com/FrontiersMindAI/faithserve/issues/new).
+If faithserve reports a FAIL that turns out to be wrong, please open a
+[bug report](https://github.com/FrontiersMindAI/faithserve/issues/new) with the JSON
+report: false positives are treated as bugs.
 
 The code is deliberately small: `client.py` (HTTP), `reference.py` (tokenizer and template), `checks.py`
 (the four checks), `report.py` and `cli.py`.
 
 ## Licence
 
-Apache-2.0, see [LICENSE](LICENSE).
+Apache-2.0, see [LICENSE](https://github.com/FrontiersMindAI/faithserve/blob/main/LICENSE).
