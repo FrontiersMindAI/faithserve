@@ -1,0 +1,55 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "faithserve"
+dynamic = ["version"]
+description = "Is this endpoint serving this open-weight model faithfully? Black-box checks for OpenAI-compatible LLM servers."
+readme = "README.md"
+license = "Apache-2.0"
+license-files = ["LICENSE"]
+requires-python = ">=3.9"
+authors = [{ name = "FrontiersMind" }]
+keywords = ["llm", "inference", "chat-template", "vllm", "llama.cpp", "ollama", "openai-compatible", "testing"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "Programming Language :: Python :: 3",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Topic :: Software Development :: Testing",
+]
+dependencies = [
+    "httpx>=0.24",
+    "transformers>=4.43",
+    "jinja2>=3.1",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=7", "ruff>=0.5"]
+
+[project.scripts]
+faithserve = "faithserve.cli:main"
+
+[project.urls]
+Repository = "https://github.com/FrontiersMindAI/faithserve"
+Issues = "https://github.com/FrontiersMindAI/faithserve/issues"
+
+[tool.hatch.version]
+path = "src/faithserve/__init__.py"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/faithserve"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
+
+[tool.ruff]
+line-length = 120
+target-version = "py39"
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP", "SIM"]
+ignore = ["SIM905"]  # "a b c".split() is fine for word lists
